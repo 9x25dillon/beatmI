@@ -769,8 +769,16 @@ def consolidate(twin: dict) -> dict:
                 acc += g * ww; tw_ += ww
         if tw_ > 0:
             acc /= tw_
-            if acc.max() > 0:
-                acc /= acc.max()
+            # Averaging many tracks pulls every step toward the same middling
+            # value - true, but a pattern where everything is half-on is not a
+            # pattern. Stretching the range back out keeps which steps this
+            # person actually favours, which is the part worth sampling from.
+            lo = float(np.percentile(acc, 30))
+            hi = float(acc.max())
+            if hi > lo:
+                acc = np.clip((acc - lo) / (hi - lo), 0.0, 1.0)
+            elif hi > 0:
+                acc = acc / hi
         twin["rhythm"][v] = acc.round(4).tolist()
         twin["density"][v] = round(float((acc > 0.28).sum()), 2)
 
