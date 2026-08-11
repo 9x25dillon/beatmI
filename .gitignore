@@ -1,0 +1,13 @@
+# A twin is derived from your own catalogue — it is a fingerprint of how you
+# write, and this repo is public. Keep it local unless you deliberately want to
+# publish yours.
+twin.json
+*.twin.json
+twin/twin.json
+
+# analysis scratch
+*.mid
+!twin/fixtures/*.mid
+__pycache__/
+*.pyc
+.DS_Store

@@ -64,11 +64,93 @@ The **808 is pitched automatically** from the lowest melody note sounding at tha
 
 Swing is applied to playback in the browser; exported MIDI is written straight so your DAW's own groove/quantize stays authoritative.
 
+---
+
+## The digital twin
+
+`twin/analyze.py` deconstructs your own catalogue into a probability model of how you make beats. SPINE reconstructs from it. Nothing uploads — files are read locally and the twin is a plain JSON file you own.
+
+**No pip install.** Audio is decoded through `ffmpeg`; the DSP is `numpy` and `scipy` only.
+
+```bash
+python3 twin/analyze.py ~/Music/*.mp3 -o twin.json     # build
+python3 twin/analyze.py --add ~/Desktop/*.wav          # accumulate more
+python3 twin/analyze.py --resonarium state.json        # fold in a Resonarium state
+python3 twin/analyze.py --inspect twin.json            # look at it
+```
+
+Then hit **LOAD TWIN** in SPINE and it generates in your idiom.
+
+### What gets extracted
+
+| From audio (mp3/wav/flac/m4a/ogg) | From MIDI |
+|---|---|
+| Tempo by autocorrelation with a parabolic peak fit | Exact tempo from the meta event |
+| Downbeat located by rotating the bar against metric strength | Exact onsets |
+| Per-voice hit probabilities — kick / snare / hat / 808, band-split after harmonic-percussive separation | Exact GM drum mapping |
+| Key and mode by correlating chroma against tonal templates | Exact pitches |
+| Scale-degree histogram and a Markov chain over degree motion | Exact melodic intervals |
+| Swing, syncopation, note density, average note length | Exact note lengths |
+
+Audio analysis is **statistical, not a transcription.** Polyphonic melody extraction from a finished master is not reliable, and this does not pretend otherwise. What it recovers is how your lines *move* — which degrees you favour, which intervals you reach for, how much space you leave. That is what generation needs. Feed it MIDI or stems and the melodic side gets much sharper.
+
+### The Resonarium bridge
+
+A [Resonarium](https://github.com/9x25dillon) state is already musical data, so it folds straight in:
+
+- **Carrier, sweep and tone frequencies** are pitches — they collapse onto pitch classes and vote on key.
+- **Binaural beat rates are tempi.** A 2.333 Hz beat is 140 BPM once folded into a musical range.
+- **`natalSeed`** seeds the generator, so the same chart reproduces the same beat.
+
+Both `resonarium.state.v2` and the hologram/cymatic schema are read.
+
+### Reconstruction
+
+Generation samples from the twin rather than replaying it — your habits set the odds, chance picks the take. The **Faithfulness** slider sharpens or flattens every distribution at once: low leans on chance, high copies your habits, and the middle is where it writes something you would have written but didn't.
+
+---
+
+## Pattern barcode
+
+A Unicode Braille cell is two columns of four dots — a tiny bitmap. Four drum voices across sixteen steps therefore pack into **eight characters**:
+
+```
+⡅⠄⠆⡅⠄⡅⠆⡤
+```
+
+That is a whole bar you can paste into a chat, a filename, or a commit message. SPINE has a field for it; `twin/braille.py` is the same codec in Python, verified byte-identical across both.
+
+```bash
+python3 twin/braille.py --demo
+python3 twin/braille.py --pattern '⡅⠄⠆⡅⠄⡅⠆⡤'
+python3 twin/braille.py --decode art.txt              # Braille art -> ASCII
+python3 twin/braille.py --decode art.txt --style density
+python3 twin/braille.py --encode art.txt              # and back again
+```
+
+**On dot layouts.** Unicode numbers dots 1–3 down the left column, 4–6 down the right, with 7–8 as the bottom row — so `0x08` is *(column 1, row 0)*. The other convention in circulation treats bits 0–3 as the whole left column, which puts `0x08` at *(column 0, row 3)*. Decoding Unicode art with the linear map transposes half the dots. Both are supported; `--layout unicode` is the default and `--layout linear` is there for generators that use the other one.
+
+---
+
 ## Structure
 
 ```
-index.html    the whole instrument — markup, CSS, Web Audio synthesis, MIDI writer
+index.html          the instrument — markup, CSS, Web Audio synthesis, MIDI writer,
+                    twin loading, generation, barcode codec
+twin/analyze.py     deconstruction: audio, MIDI and Resonarium -> twin.json
+twin/braille.py     Braille bitmaps and the pattern barcode codec
+twin/test_analyze.py  ground-truth tests
 ```
+
+## Tests
+
+`twin/test_analyze.py` renders synthetic tracks whose tempo, key, scale and drum pattern are known by construction, then checks that analysis recovers them — because a spectrogram that looks plausible tells you nothing about whether the numbers are right.
+
+```bash
+python3 twin/test_analyze.py
+```
+
+Covers tempo and downbeat recovery, key detection across all 12 roots, mode discrimination, the MIDI parser, the Resonarium bridge, and twin consolidation.
 
 Drum and melody voices are synthesised live with the Web Audio API — no samples, so nothing to load and nothing to license. Kick is a pitch-enveloped sine with a noise transient, snare is filtered noise over a triangle body, clap is a four-burst noise stack, hats are highpassed noise, the 808 is a glided sine through a `tanh` shaper, and the lead is two detuned saws through a resonant lowpass sweep.
 
@@ -78,6 +160,9 @@ Drum and melody voices are synthesised live with the Web Audio API — no sample
 - Per-note velocity and slide (drill-style 808 glides)
 - Pattern save/recall to `localStorage`
 - Longer forms than four bars
+- Stem-aware analysis, so isolated drums and leads bypass the statistical melody path
+- Twin drift over time — weight recent work above old work
+- VST3/AU wrapper (JUCE), so the writing tools live inside the DAW
 
 ## License
 

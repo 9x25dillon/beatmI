@@ -184,6 +184,24 @@ input[type=range]::-moz-range-thumb{width:11px;height:16px;background:var(--ink2
 .act.primary:hover{background:color-mix(in srgb,var(--mel) 84%,#fff);color:#0B1F1A}
 
 .railnote{font-family:var(--sans);font-size:11px;line-height:1.55;color:var(--ink3);letter-spacing:0}
+.railnote b{color:var(--ink2);font-weight:700}
+
+label.act{display:block;text-align:center;cursor:pointer}
+.act[disabled]{opacity:.4;cursor:not-allowed}
+.act[disabled]:hover{border-color:var(--line);color:var(--ink)}
+
+.twinstats{display:flex;flex-direction:column;gap:5px;padding:9px 10px;background:var(--sunk);
+  border:1px solid var(--line);border-radius:2px}
+.twinstats .row{display:flex;justify-content:space-between;gap:10px;font-size:10px;letter-spacing:.08em;
+  color:var(--ink3)}
+.twinstats .row b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.twinstats .spark{display:flex;align-items:center;gap:7px;font-size:10px;color:var(--ink3);letter-spacing:.08em}
+.twinstats .spark .bars{display:flex;gap:1px;align-items:flex-end;height:15px;flex:1}
+.twinstats .spark .bars i{flex:1;background:currentColor;min-height:1px;border-radius:1px;opacity:.85}
+
+.barcode{width:100%;padding:9px 10px;background:var(--sunk);border:1px solid var(--line);border-radius:2px;
+  font-family:var(--mono);font-size:19px;letter-spacing:.12em;text-align:center;color:var(--mel)}
+.barcode:focus{border-color:var(--mel);outline:none}
 
 /* ── footer ───────────────────────────────── */
 .desc{padding:12px 14px;font-size:12px;line-height:1.75;color:var(--ink2);letter-spacing:.03em;
@@ -322,6 +340,32 @@ input[type=range]::-moz-range-thumb{width:11px;height:16px;background:var(--ink2
           <p class="railnote" style="margin-top:3px">A&prime; is <b style="color:var(--sub)">A</b> put through one operation. Related, not random — that&rsquo;s what makes it sound intentional.</p>
           <div class="ops" id="ops"></div>
           <button class="act" id="bFromA">BUILD B FROM A</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-hd"><h2>Digital twin</h2></div>
+        <div class="body">
+          <p class="railnote" id="twinNote">No twin loaded. Run <b>twin/analyze.py</b> over your catalogue, then drop the <b>twin.json</b> here.</p>
+          <div id="twinStats" class="twinstats" hidden></div>
+          <label class="act" for="twinFile" id="twinLoad" tabindex="0" role="button">LOAD TWIN</label>
+          <input type="file" id="twinFile" accept=".json,application/json" hidden>
+          <button class="act primary" id="twinGen" disabled>GENERATE FROM TWIN</button>
+          <label class="tlabel" for="twinBias" style="margin-top:2px">Faithfulness <span id="twinBiasOut" style="color:var(--ink2)">70%</span></label>
+          <input type="range" id="twinBias" min="0" max="100" value="70" aria-label="How closely to follow the twin">
+          <p class="railnote">Low leans on chance, high copies your habits. The middle is where it writes something you would have written but didn&rsquo;t.</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-hd"><h2>Pattern barcode</h2></div>
+        <div class="body">
+          <p class="railnote">Four voices, sixteen steps, eight Braille characters. Paste one in to load it.</p>
+          <input type="text" id="barcode" class="barcode" spellcheck="false" aria-label="Pattern barcode">
+          <div class="seg">
+            <button id="bcCopy">COPY</button>
+            <button id="bcApply">APPLY</button>
+          </div>
         </div>
       </section>
 
@@ -702,7 +746,7 @@ function paint(){
     c.className=cls;
   });
   el("editTgt").textContent="MOTIF "+S.target;
-  paintPhrase(); paintDesc(); paintPlayhead();
+  paintPhrase(); paintDesc(); paintPlayhead(); refreshBarcode();
 }
 function paintPhrase(){
   const p=el("phrase");
@@ -1004,6 +1048,206 @@ el("dlMidi").addEventListener("click",e=>{
   const o=e.currentTarget.textContent;
   e.currentTarget.textContent="SAVED"; setTimeout(()=>e.currentTarget.textContent=o,1200);
 });
+
+/* ───────── pattern barcode ─────────
+   A Unicode Braille cell is two columns of four dots, so four voices across
+   sixteen steps pack into eight characters. Same layout as twin/braille.py:
+   a code copied out of either side decodes in the other. */
+const BR_LO=0x2800;
+const BR_BITS=[[0x01,0x02,0x04,0x40],[0x08,0x10,0x20,0x80]]; // [col][row]
+const BC_VOICES=["kick","snare","hat","sub"];
+
+function patternToBraille(){
+  let out="";
+  for(let cell=0;cell<8;cell++){
+    let bits=0;
+    BC_VOICES.forEach((v,row)=>{
+      for(let dx=0;dx<2;dx++){
+        if(S.drums[v][cell*2+dx]) bits|=BR_BITS[dx][row];
+      }
+    });
+    out+=String.fromCharCode(BR_LO+bits);
+  }
+  return out;
+}
+function brailleToPattern(code){
+  const cells=[...code].filter(c=>c.charCodeAt(0)>=BR_LO&&c.charCodeAt(0)<=BR_LO+0xFF).slice(0,8);
+  if(!cells.length) return null;
+  const grid={}; BC_VOICES.forEach(v=>grid[v]=new Array(STEPS).fill(0));
+  cells.forEach((ch,cell)=>{
+    const bits=ch.charCodeAt(0)-BR_LO;
+    BC_VOICES.forEach((v,row)=>{
+      for(let dx=0;dx<2;dx++) if(bits&BR_BITS[dx][row]) grid[v][cell*2+dx]=1;
+    });
+  });
+  return grid;
+}
+function refreshBarcode(){ el("barcode").value=patternToBraille(); }
+el("bcCopy").addEventListener("click",e=>copy(el("barcode").value,e.currentTarget));
+el("bcApply").addEventListener("click",()=>{
+  const g=brailleToPattern(el("barcode").value);
+  if(!g){ el("barcode").value=patternToBraille(); return; }
+  BC_VOICES.forEach(v=>{ S.drums[v]=g[v].map((x,i)=>x?(S.drums[v][i]||1):0); });
+  paint();
+});
+el("barcode").addEventListener("keydown",e=>{ if(e.key==="Enter") el("bcApply").click(); });
+
+/* ───────── digital twin ─────────
+   The twin is a probability model, so reconstruction samples from it rather
+   than replaying it: your habits decide the odds, chance decides the take. */
+let TWIN=null;
+
+function twinRng(seed){                       // deterministic when a natal seed exists
+  let s=(seed>>>0)||((Math.random()*2**32)>>>0);
+  return()=>{ s^=s<<13; s>>>=0; s^=s>>17; s^=s<<5; s>>>=0; return s/4294967296; };
+}
+function pickWeighted(weights,rng){
+  const total=weights.reduce((a,b)=>a+b,0);
+  if(total<=0) return Math.floor(rng()*weights.length);
+  let r=rng()*total;
+  for(let i=0;i<weights.length;i++){ r-=weights[i]; if(r<=0) return i; }
+  return weights.length-1;
+}
+
+function loadTwin(obj){
+  if(!obj||obj.schema!=="beatmi.twin.v1") throw new Error("not a beatmi.twin.v1 file");
+  if(!obj.rhythm||!obj.tempo) throw new Error("twin is missing its rhythm or tempo model");
+  TWIN=obj;
+  const n=(obj.sources||[]).length;
+  const scales=Object.entries(obj.scale_weights||{});
+  const topScale=scales.length?scales[0][0]:"minor";
+  const keyIdx=(obj.key_weights||[]).indexOf(Math.max(...(obj.key_weights||[0])));
+  const res=obj.resonarium||{};
+
+  el("twinNote").hidden=true;
+  const box=el("twinStats"); box.hidden=false;
+  const row=(k,v)=>`<div class="row"><span>${k}</span><b>${v}</b></div>`;
+  const spark=(label,arr,color)=>
+    `<div class="spark" style="color:${color}"><span style="width:34px">${label}</span>`+
+    `<span class="bars">${arr.map(v=>`<i style="height:${Math.max(4,v*100)}%"></i>`).join("")}</span></div>`;
+  box.innerHTML=
+    row("sources",n)+
+    row("tempo",`${Math.round(obj.tempo.median||0)} BPM ±${Math.round(obj.tempo.spread||0)}`)+
+    row("home key",`${NOTE_NAMES[keyIdx<0?0:keyIdx]} ${SCALES[topScale]?SCALES[topScale].name:topScale}`)+
+    row("swing",`${Math.round((obj.swing||0)*100)}%`)+
+    row("syncopation",(obj.syncopation||0).toFixed(2))+
+    (res.carriers&&res.carriers.length?row("resonarium",`${res.carriers.length} carriers`):"")+
+    spark("kick",obj.rhythm.kick||[],"var(--kick)")+
+    spark("snare",obj.rhythm.snare||[],"var(--snare)")+
+    spark("hat",obj.rhythm.hat||[],"var(--hat)")+
+    spark("808",obj.rhythm.sub||[],"var(--sub)");
+  el("twinGen").disabled=false;
+}
+
+function generateFromTwin(){
+  if(!TWIN) return;
+  const fidelity=+el("twinBias").value/100;
+  const rng=twinRng((TWIN.resonarium&&TWIN.resonarium.natal_seed)||0);
+
+  // tempo — centre on the twin, wander further as faithfulness drops
+  const med=TWIN.tempo.median||S.bpm;
+  const spread=(TWIN.tempo.spread||6)*(1.25-fidelity);
+  S.bpm=Math.round(Math.max(70,Math.min(190,med+(rng()*2-1)*spread)));
+  el("bpm").value=S.bpm; el("bpmOut").textContent=S.bpm;
+  S.swing=Math.round(Math.max(0,Math.min(60,(TWIN.swing||0)*100)));
+  el("swing").value=S.swing; el("swOut").textContent=S.swing;
+
+  // key and scale, drawn from the twin's weights
+  const kw=(TWIN.key_weights||[]).slice();
+  if(kw.length===12&&kw.some(x=>x>0)){
+    const sharp=kw.map(x=>Math.pow(x,1+fidelity*5));
+    S.key=pickWeighted(sharp,rng); keySel.value=S.key;
+  }
+  const sw=Object.entries(TWIN.scale_weights||{}).filter(([k])=>SCALES[k]);
+  if(sw.length){
+    const sharp=sw.map(([,v])=>Math.pow(v,1+fidelity*5));
+    S.scale=sw[pickWeighted(sharp,rng)][0]; scSel.value=S.scale;
+  }
+  buildMel();
+
+  // drums — each step fires on its own odds, pulled toward certainty by fidelity
+  BC_VOICES.forEach(v=>{
+    const prob=TWIN.rhythm[v]||[];
+    const lane=new Array(STEPS).fill(0);
+    for(let i=0;i<STEPS;i++){
+      const p=prob[i]||0;
+      const biased=Math.pow(p,1-fidelity*0.55);       // faithful runs commit harder
+      if(rng()<biased*(0.55+fidelity*0.6)) lane[i]=1;
+    }
+    if(!lane.some(Boolean)&&prob.length){              // never hand back an empty lane
+      lane[prob.indexOf(Math.max(...prob))]=1;
+    }
+    if(v==="hat"){                                      // rolls where the twin is busiest
+      for(let i=0;i<STEPS;i++) if(lane[i]&&(prob[i]||0)>0.75&&rng()<0.22*fidelity) lane[i]=2+(rng()<0.4?1:0);
+    }
+    S.drums[v]=lane;
+  });
+
+  // melody — walk the twin's Markov chain over scale degrees
+  const mel=TWIN.melody||{};
+  const n=sLen();
+  const trans=(mel.transitions&&mel.transitions.length===n)?mel.transitions:null;
+  const hist=(mel.degree_hist&&mel.degree_hist.length===n)?mel.degree_hist:new Array(n).fill(1);
+  const perBar=Math.max(2,Math.min(8,Math.round(mel.notes_per_bar||4)));
+  const avgLen=Math.max(1,Math.min(6,Math.round(mel.avg_len_steps||2)));
+
+  const mask=maskSteps()||[0,2,4,6,8,10,12,14];
+  const slots=[];
+  const pool=[...mask];
+  slots.push(pool.shift());                              // always speak on the downbeat
+  while(slots.length<Math.min(perBar,mask.length)&&pool.length)
+    slots.push(pool.splice(Math.floor(rng()*pool.length),1)[0]);
+  slots.sort((a,b)=>a-b);
+
+  let deg=pickWeighted(hist,rng);
+  const notes=[];
+  slots.forEach((step,i)=>{
+    if(i>0){
+      const row=trans?trans[deg]:null;
+      const w=(row&&row.some(x=>x>0))
+        ? row.map((x,j)=>Math.pow(x,1+fidelity*3)+ (1-fidelity)*0.12*hist[j])
+        : hist;
+      deg=pickWeighted(w,rng);
+    }
+    const oct=rng()<0.3?0:1;                             // mostly the middle octave
+    notes.push({step,row:clamp(oct*n+deg),len:avgLen});
+  });
+  if(notes.length){                                      // land the phrase somewhere stable
+    const last=notes[notes.length-1];
+    for(let d=0;d<=4;d++){
+      if(isStable(clamp(last.row-d))){last.row=clamp(last.row-d);break;}
+      if(isStable(clamp(last.row+d))){last.row=clamp(last.row+d);break;}
+    }
+    last.len=Math.max(last.len,3);
+  }
+  S.motifs[S.target]=norm(notes);
+  S.motifs[S.target==="A"?"B":"A"]=norm(OPS[S.op].fn(notes.map(x=>({...x}))));
+  paint();
+}
+
+el("twinFile").addEventListener("change",e=>{
+  const f=e.target.files&&e.target.files[0]; if(!f) return;
+  const fr=new FileReader();
+  fr.onload=()=>{
+    try{
+      loadTwin(JSON.parse(fr.result));
+      el("twinGen").click();
+    }catch(err){
+      el("twinNote").hidden=false;
+      el("twinNote").innerHTML=`Could not read that file: ${err.message}. `+
+        `Generate one with <b>python3 twin/analyze.py</b>.`;
+      el("twinStats").hidden=true; el("twinGen").disabled=true; TWIN=null;
+    }
+  };
+  fr.onerror=()=>{ el("twinNote").hidden=false; el("twinNote").textContent="That file could not be read."; };
+  fr.readAsText(f);
+  e.target.value="";
+});
+el("twinLoad").addEventListener("keydown",e=>{
+  if(e.key==="Enter"||e.key===" "){ e.preventDefault(); el("twinFile").click(); }
+});
+el("twinGen").addEventListener("click",generateFromTwin);
+el("twinBias").addEventListener("input",e=>{ el("twinBiasOut").textContent=e.target.value+"%"; });
 
 /* ───────── boot ───────── */
 buildDrums(); buildMel();
